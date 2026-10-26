@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign PDF - ACC</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📄 Sign PDF</h1>
+            <p class="subtitle">Upload PDF & Tanda Tangan Digital</p>
+        </header>
+
+        <main>
+            <!-- Step 1: Upload PDF -->
+            <div class="card">
+                <div class="step-badge">1</div>
+                <h2>Upload Dokumen PDF</h2>
+                <div class="upload-area" id="pdfUploadArea">
+                    <div class="upload-icon">📁</div>
+                    <p>Klik atau drag & drop file PDF di sini</p>
+                    <span class="file-hint">Maksimal 5MB</span>
+                    <input type="file" id="pdfInput" accept=".pdf" hidden>
+                </div>
+                <div class="file-info" id="pdfInfo" style="display:none;">
+                    <span class="file-name" id="pdfName"></span>
+                    <span class="file-size" id="pdfSize"></span>
+                    <button class="btn-remove" id="pdfRemove">✕</button>
+                </div>
+                <div class="pdf-preview" id="pdfPreview" style="display:none;">
+                    <iframe id="pdfIframe"></iframe>
+                </div>
+            </div>
+
+            <!-- Step 2: Upload TTD -->
+            <div class="card">
+                <div class="step-badge">2</div>
+                <h2>Upload Tanda Tangan</h2>
+                <div class="upload-area" id="ttdUploadArea">
+                    <div class="upload-icon">✍️</div>
+                    <p>Klik atau drag & drop gambar TTD di sini</p>
+                    <span class="file-hint">Format: PNG, JPG, JPEG (Maks 2MB)</span>
+                    <input type="file" id="ttdInput" accept="image/png,image/jpeg,image/jpg" hidden>
+                </div>
+                <div class="file-info" id="ttdInfo" style="display:none;">
+                    <span class="file-name" id="ttdName"></span>
+                    <span class="file-size" id="ttdSize"></span>
+                    <button class="btn-remove" id="ttdRemove">✕</button>
+                </div>
+                <div class="ttd-preview" id="ttdPreview" style="display:none;">
+                    <img id="ttdImage" alt="Preview TTD">
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="action-bar">
+                <button class="btn-submit" id="btnSubmit" disabled>
+                    <span class="btn-text">Kirim & Tanda Tangan PDF</span>
+                    <span class="btn-loader" style="display:none;">
+                        <span class="spinner"></span> Memproses...
+                    </span>
+                </button>
+            </div>
+
+            <!-- Result -->
+            <div class="card result-card" id="resultCard" style="display:none;">
+                <h2>📋 Hasil</h2>
+                <div class="result-status" id="resultStatus"></div>
+                <pre class="result-body" id="resultBody"></pre>
+            </div>
+        </main>
+
+        <footer>
+            <p>&copy; 2025 Astra Credit Companies. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
