@@ -1,14 +1,13 @@
 // Vercel Serverless Function — Proxy Sign PDF (public endpoint, no X-SIGNATURE)
+// Uploads PDF base64 → Vercel Blob → kirim URL ke Berijalan (karena PATH_FILE harus URL, bukan base64)
+const { put } = require('@vercel/blob');
 
 // Secrets come from environment variables (Vercel → Settings → Environment Variables)
 const CFG = {
     TARGET_URL: process.env.TARGET_URL || 'https://phone-cleansing-dev.berijalan.id/gateway/ekyc/integration/public/sign-pdf',
     API_KEY:    process.env.API_KEY,
     X_APP_ID:   process.env.X_APP_ID,
-    // Webhook URL: Berijalan akan POST hasil sign PDF ke URL ini
-    // Gunakan VERCEL_URL (auto-set oleh Vercel) atau WEBHOOK_URL kustom
-    WEBHOOK_URL: process.env.WEBHOOK_URL ||
-        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/api/webhook` : undefined),
+    WEBHOOK_URL: process.env.WEBHOOK_URL,
     WEBHOOK_TOKEN: process.env.WEBHOOK_TOKEN,
 };
 
@@ -31,18 +30,37 @@ module.exports = async (req, res) => {
     try {
         const ts = timestampWIB();
 
-        // Inject callback/webhook URL into payload so Berijalan knows where to POST results
-        const bodyWithCallback = { ...req.body };
-        if (CFG.WEBHOOK_URL) {
-            bodyWithCallback.callback_url = CFG.WEBHOOK_URL +
-                (CFG.WEBHOOK_TOKEN ? `?token=${CFG.WEBHOOK_TOKEN}` : '');
-            console.log('Webhook callback_url:', bodyWithCallback.callback_url);
-        } else {
-            console.warn('WEBHOOK_URL is not set — Berijalan will not be able to send signed PDF results back');
+        // --- Build webhook callback URL ---
+        const webhookUrl = CFG.WEBHOOK_URL ||
+            (process.env.VERCEL_URL
+                ? `https://${process.env.VERCEL_URL}/api/webhook`
+                : `http://${req.headers.host || 'localhost:3001'}/api/webhook`);
+        const callbackUrl = webhookUrl + (CFG.WEBHOOK_TOKEN ? `?token=${CFG.WEBHOOK_TOKEN}` : '');
+
+        // --- Upload PDF(s) from base64 → Vercel Blob (public, so Berijalan can download) ---
+        // Berijalan expects PATH_FILE as a downloadable URL, not base64 data URL
+        const body = { ...req.body, callback_url: callbackUrl };
+        if (body.list_doc && Array.isArray(body.list_doc)) {
+            const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            for (let i = 0; i < body.list_doc.length; i++) {
+                const doc = body.list_doc[i];
+                const raw = doc.PATH_FILE;
+                if (raw && /^data:application\/pdf;base64,/.test(raw)) {
+                    const pdfBuf = Buffer.from(raw.replace(/^data:application\/pdf;base64,/, ''), 'base64');
+                    const blobPath = `uploads/${uploadId}_${i}.pdf`;
+                    const { url } = await put(blobPath, pdfBuf, {
+                        access: 'public',
+                        addRandomSuffix: false,
+                        contentType: 'application/pdf',
+                    });
+                    console.log(`Uploaded PDF to Blob: ${blobPath} → ${url}`);
+                    doc.PATH_FILE = url;
+                }
+            }
         }
 
-        const bodyStr = JSON.stringify(bodyWithCallback);
-
+        const bodyStr = JSON.stringify(body);
+        console.log('Webhook callback_url:', callbackUrl);
         console.log('X-TIMESTAMP:', ts);
 
         const response = await fetch(CFG.TARGET_URL, {
