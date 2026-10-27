@@ -14,12 +14,16 @@ const dom = {
     ttdRemove: $('#ttdRemove'), ttdPreview: $('#ttdPreview'), ttdImage: $('#ttdImage'),
     btnSubmit: $('#btnSubmit'), resultCard: $('#resultCard'),
     resultStatus: $('#resultStatus'), resultBody: $('#resultBody'),
+    signedResult: $('#signedResult'), signedStatus: $('#signedStatus'),
+    signedPreview: $('#signedPreview'), signedIframe: $('#signedIframe'), signedDownload: $('#signedDownload'),
     toastContainer: $('#toastContainer'),
 };
 
 // ===== CONFIG =====
 const CFG = {
     proxyUrl: '/api/sign-pdf',
+    resultUrl: '/api/result',
+    pollIntervalMs: 5000, pollMaxTries: 60, // wait up to 5 minutes for the webhook
     namaPic: 'Vieri Sanjaya', noRegistration: '10019102276670',
     namaDocument: 'Test Dokumen', noDoc: '001_004_006_N_P', pageNo: 1,
     x1: 400, y1: 60, x2: 200, y2: 180,
@@ -103,6 +107,58 @@ dom.ttdRemove.addEventListener('click', e => { e.stopPropagation(); removeTtd();
 }));
 
 // =============================================
+//  SIGNED RESULT → poll until the webhook has delivered the PDF
+// =============================================
+let pollTimer = null;
+
+function resetSignedResult() {
+    clearTimeout(pollTimer);
+    dom.signedResult.style.display = 'none';
+    dom.signedPreview.style.display = 'none';
+    dom.signedDownload.style.display = 'none';
+    if (dom.signedIframe.src.startsWith('blob:')) URL.revokeObjectURL(dom.signedIframe.src);
+    dom.signedIframe.removeAttribute('src');
+}
+
+function setSignedStatus(text, type) {
+    dom.signedStatus.className = 'result-status ' + type;
+    dom.signedStatus.textContent = text;
+}
+
+function showSignedPdf(url, fileId) {
+    dom.signedIframe.src = url;
+    dom.signedDownload.href = url;
+    dom.signedDownload.download = `signed-${fileId}.pdf`;
+    dom.signedPreview.style.display = 'block';
+    dom.signedDownload.style.display = 'inline-block';
+    setSignedStatus('✅ PDF hasil tanda tangan sudah tersedia', 'success');
+    toast('PDF hasil tanda tangan sudah tersedia!', 'success');
+}
+
+function pollSignedResult(fileId, attempt = 1) {
+    dom.signedResult.style.display = 'block';
+    setSignedStatus(`⏳ Menunggu hasil tanda tangan dari server… (${attempt}/${CFG.pollMaxTries})`, 'pending');
+
+    pollTimer = setTimeout(async () => {
+        try {
+            const res = await fetch(`${CFG.resultUrl}?fileId=${encodeURIComponent(fileId)}`);
+            if ((res.headers.get('content-type') || '').includes('application/pdf')) {
+                return showSignedPdf(URL.createObjectURL(await res.blob()), fileId);
+            }
+            const data = await res.json();
+            if (data.status === 'ready' && data.url) return showSignedPdf(data.url, fileId);
+            if (data.status === 'error') throw new Error(data.error);
+        } catch (err) {
+            console.error('Poll error:', err);
+        }
+        if (attempt >= CFG.pollMaxTries) {
+            return setSignedStatus('⚠️ Hasil belum diterima. Webhook dari server belum masuk — coba cek lagi nanti.', 'error');
+        }
+        pollSignedResult(fileId, attempt + 1);
+    }, CFG.pollIntervalMs);
+}
+
+// =============================================
 //  SUBMIT → via Vercel serverless proxy
 // =============================================
 dom.btnSubmit.addEventListener('click', async () => {
@@ -113,8 +169,10 @@ dom.btnSubmit.addEventListener('click', async () => {
             PATH_FILE: `data:application/pdf;base64,${state.pdfBase64}`,
             NAMA_DOCUMENT: CFG.namaDocument,
             NO_DOC: CFG.noDoc,
-            X1: CFG.x1, Y1: CFG.y1, X2: CFG.x2, Y2: CFG.y2,
-            PAGE_NO: CFG.pageNo,
+            coordinates: [{
+                X1: CFG.x1, Y1: CFG.y1, X2: CFG.x2, Y2: CFG.y2,
+                PAGE_NO: CFG.pageNo,
+            }],
         }],
         file_ttd: { base64string: state.ttdBase64 },
     };
@@ -124,6 +182,7 @@ dom.btnSubmit.addEventListener('click', async () => {
     dom.btnSubmit.querySelector('.btn-text').style.display = 'none';
     dom.btnSubmit.querySelector('.btn-loader').style.display = 'inline-flex';
     dom.resultCard.style.display = 'none';
+    resetSignedResult();
 
     try {
         const res = await fetch(CFG.proxyUrl, {
@@ -139,8 +198,10 @@ dom.btnSubmit.addEventListener('click', async () => {
 
         if (result.ok) {
             dom.resultStatus.className = 'result-status success';
-            dom.resultStatus.textContent = `✅ Berhasil — Status: ${result.status}`;
-            toast('PDF berhasil ditandatangani!', 'success');
+            dom.resultStatus.textContent = `✅ Terkirim — Status: ${result.status}`;
+            toast('PDF terkirim, menunggu hasil tanda tangan…', 'success');
+            const fileId = result.data?.data?.[0]?.fileId;
+            if (fileId) pollSignedResult(fileId);
         } else {
             dom.resultStatus.className = 'result-status error';
             dom.resultStatus.textContent = `❌ Gagal — Status: ${result.status}`;

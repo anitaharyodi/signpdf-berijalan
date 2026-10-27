@@ -1,12 +1,8 @@
-// Vercel Serverless Function — Proxy Sign PDF + X-SIGNATURE Generation
-const crypto = require('crypto');
+// Vercel Serverless Function — Proxy Sign PDF (public endpoint, no X-SIGNATURE)
 
 // Secrets come from environment variables (Vercel → Settings → Environment Variables)
-// PEM may be stored with literal "\n" sequences, so normalize to real newlines
-const PRIVATE_KEY_PEM = (process.env.PRIVATE_KEY_PEM || '').replace(/\\n/g, '\n');
-
 const CFG = {
-    TARGET_URL: process.env.TARGET_URL || 'https://phone-cleansing-dev.berijalan.id/gateway/master-tenant/integration/sign-pdf',
+    TARGET_URL: process.env.TARGET_URL || 'https://phone-cleansing-dev.berijalan.id/gateway/ekyc/integration/public/sign-pdf',
     API_KEY:    process.env.API_KEY,
     X_APP_ID:   process.env.X_APP_ID,
 };
@@ -16,24 +12,6 @@ function timestampWIB() {
     // toISOString() is always UTC, so shift by +7h regardless of server timezone
     const wib = new Date(Date.now() + 7 * 3600000);
     return wib.toISOString().replace(/\.\d{3}Z$/, '+07:00');
-}
-
-// Helper: SHA256 → lowercase hex
-function sha256(data) {
-    return crypto.createHash('sha256').update(data).digest('hex').toLowerCase();
-}
-
-// Generate X-SIGNATURE
-// DataToSign = HTTPMethod + ":" + RequestUrl + ":" + Lowercase(SHA256(RequestBody)) + ":" + AppID + ":" + Timestamp
-// X-SIGNATURE = Base64( SHA256withRSA(PrivateKey, DataToSign) )
-function generateSignature(httpMethod, requestUrl, bodyStr, timestamp) {
-    const bodyHash = sha256(bodyStr);
-    const dataToSign = `${httpMethod}:${requestUrl}:${bodyHash}:${CFG.X_APP_ID}:${timestamp}`;
-    console.log('DataToSign:', dataToSign);
-    const sign = crypto.createSign('RSA-SHA256');
-    sign.update(dataToSign);
-    sign.end();
-    return sign.sign(PRIVATE_KEY_PEM, 'base64');
 }
 
 module.exports = async (req, res) => {
@@ -49,11 +27,6 @@ module.exports = async (req, res) => {
         const ts = timestampWIB();
         const bodyStr = JSON.stringify(req.body);
 
-        // Parse target URL path
-        const targetUrl = new URL(CFG.TARGET_URL);
-        const signature = generateSignature('POST', targetUrl.pathname, bodyStr, ts);
-
-        console.log('X-SIGNATURE:', signature);
         console.log('X-TIMESTAMP:', ts);
 
         const response = await fetch(CFG.TARGET_URL, {
@@ -61,7 +34,7 @@ module.exports = async (req, res) => {
             headers: {
                 'Content-Type':               'application/json',
                 'X-APP-ID':                   CFG.X_APP_ID,
-                'X-SIGNATURE':                signature,
+                // 'X-SIGNATURE':                signature,
                 'X-TIMESTAMP':                ts,
                 'APIKey':                     CFG.API_KEY,
                 'X-Content-Type-Options':     'nosniff',

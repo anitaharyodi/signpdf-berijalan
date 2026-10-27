@@ -411,6 +411,37 @@ header .subtitle {
     color: var(--danger);
 }
 
+.result-status.pending {
+    background: var(--warning-light);
+    color: var(--warning);
+}
+
+/* --- Signed PDF result --- */
+.signed-result {
+    margin-top: 20px;
+}
+
+.signed-result .pdf-preview {
+    margin-top: 0;
+}
+
+.btn-download {
+    display: inline-block;
+    margin-top: 12px;
+    padding: 10px 18px;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-decoration: none;
+    transition: background var(--transition);
+}
+
+.btn-download:hover {
+    background: var(--primary-hover);
+}
+
 .result-body {
     background: #1e293b;
     color: #e2e8f0;
