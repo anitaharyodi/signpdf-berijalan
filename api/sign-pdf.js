@@ -5,6 +5,11 @@ const CFG = {
     TARGET_URL: process.env.TARGET_URL || 'https://phone-cleansing-dev.berijalan.id/gateway/ekyc/integration/public/sign-pdf',
     API_KEY:    process.env.API_KEY,
     X_APP_ID:   process.env.X_APP_ID,
+    // Webhook URL: Berijalan akan POST hasil sign PDF ke URL ini
+    // Gunakan VERCEL_URL (auto-set oleh Vercel) atau WEBHOOK_URL kustom
+    WEBHOOK_URL: process.env.WEBHOOK_URL ||
+        (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}/api/webhook` : undefined),
+    WEBHOOK_TOKEN: process.env.WEBHOOK_TOKEN,
 };
 
 // Helper: WIB timestamp
@@ -25,7 +30,18 @@ module.exports = async (req, res) => {
 
     try {
         const ts = timestampWIB();
-        const bodyStr = JSON.stringify(req.body);
+
+        // Inject callback/webhook URL into payload so Berijalan knows where to POST results
+        const bodyWithCallback = { ...req.body };
+        if (CFG.WEBHOOK_URL) {
+            bodyWithCallback.callback_url = CFG.WEBHOOK_URL +
+                (CFG.WEBHOOK_TOKEN ? `?token=${CFG.WEBHOOK_TOKEN}` : '');
+            console.log('Webhook callback_url:', bodyWithCallback.callback_url);
+        } else {
+            console.warn('WEBHOOK_URL is not set — Berijalan will not be able to send signed PDF results back');
+        }
+
+        const bodyStr = JSON.stringify(bodyWithCallback);
 
         console.log('X-TIMESTAMP:', ts);
 
