@@ -167,7 +167,8 @@ const imgAspect = url => new Promise(r => {
     i.onerror = () => r(0.3);
     i.src = url;
 });
-// ---- Auto Remove Background (canvas-based) ----
+
+// ---- Auto Remove Background (color-distance based) ----
 function removeWhiteBackground(imageEl) {
     const canvas = document.createElement('canvas');
     const w = imageEl.naturalWidth, h = imageEl.naturalHeight;
@@ -176,15 +177,37 @@ function removeWhiteBackground(imageEl) {
     ctx.drawImage(imageEl, 0, 0, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
     const data = imageData.data;
-    const threshold = 200; // nilai RGB di atas ini dianggap background
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        // Jika piksel cukup terang (mendekati putih), jadikan transparan
-        if (r > threshold && g > threshold && b > threshold) {
-            // Hitung seberapa "putih" piksel ini, untuk gradasi alpha
-            const brightness = (r + g + b) / 3;
-            const alpha = Math.max(0, 1 - (brightness - threshold) / (255 - threshold));
-            data[i + 3] = Math.round(alpha * 255);
+    const len = data.length;
+
+    // 1. Auto-detect background color (sample 4 corners + edges)
+    const samples = [
+        [0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1],
+        [Math.floor(w / 2), 0], [Math.floor(w / 2), h - 1],
+        [0, Math.floor(h / 2)], [w - 1, Math.floor(h / 2)]
+    ];
+    let bgR = 0, bgG = 0, bgB = 0;
+    for (const [sx, sy] of samples) {
+        const idx = (Math.min(sy, h - 1) * w + Math.min(sx, w - 1)) * 4;
+        bgR += data[idx]; bgG += data[idx + 1]; bgB += data[idx + 2];
+    }
+    bgR = Math.round(bgR / samples.length);
+    bgG = Math.round(bgG / samples.length);
+    bgB = Math.round(bgB / samples.length);
+
+    // 2. Hard cutoff: hapus warna dekat background, sisakan tinta hitam gelap
+    const threshold = 45; // color distance cutoff
+    for (let i = 0; i < len; i += 4) {
+        const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB;
+        const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+
+        if (dist < threshold) {
+            // Background → fully transparent
+            data[i] = data[i + 1] = data[i + 2] = 0;
+            data[i + 3] = 0;
+        } else {
+            // Signature ink → opaque, hitamkan
+            data[i] = data[i + 1] = data[i + 2] = 0;
+            data[i + 3] = 255;
         }
     }
     ctx.putImageData(imageData, 0, 0);
@@ -196,11 +219,11 @@ async function handleTtdFile(file) {
     if(!['image/png','image/jpeg','image/jpg'].includes(file.type)){toast('TTD harus PNG/JPG.','error');return;}
     if(file.size>MAX_TTD){toast('TTD maksimal 2MB.','error');return;}
 
-    // Load sebagai Image dulu untuk proses remove background
-    const originalUrl = URL.createObjectURL(file);
+    // Load sebagai Image untuk proses remove background
     const img = new Image();
-    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = originalUrl; });
-    URL.revokeObjectURL(originalUrl);
+    const imgUrl = URL.createObjectURL(file);
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = imgUrl; });
+    URL.revokeObjectURL(imgUrl);
 
     // Auto remove background
     const processedBlob = await removeWhiteBackground(img);
@@ -209,12 +232,12 @@ async function handleTtdFile(file) {
     if(state.ttdImageUrl) URL.revokeObjectURL(state.ttdImageUrl);
     state.ttdImageUrl = URL.createObjectURL(processedBlob);
     state.ttdAspect = img.naturalHeight / img.naturalWidth;
-    state.ttdIsJpg = false; // hasil selalu PNG (ada transparansi)
+    state.ttdIsJpg = false;
 
     dom.ttdName.textContent=file.name;dom.ttdSize.textContent=fmt(file.size);
     dom.ttdInfo.style.display='flex';dom.ttdUploadArea.style.display='none';
     state.ttdPositions={};state.ttdPlaced=false;updateTtdOverlay();updateBtn();
-    toast('Tanda tangan siap (background dihapus otomatis). Klik halaman untuk menempatkannya.','success');
+    toast('Tanda tangan siap. Klik halaman untuk menempatkannya.','success');
 }
 function removeTtd() {
     dom.ttdInput.value='';dom.ttdInfo.style.display='none';dom.ttdUploadArea.style.display='';
