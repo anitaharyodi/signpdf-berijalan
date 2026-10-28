@@ -167,18 +167,54 @@ const imgAspect = url => new Promise(r => {
     i.onerror = () => r(0.3);
     i.src = url;
 });
+// ---- Auto Remove Background (canvas-based) ----
+function removeWhiteBackground(imageEl) {
+    const canvas = document.createElement('canvas');
+    const w = imageEl.naturalWidth, h = imageEl.naturalHeight;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageEl, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    const threshold = 200; // nilai RGB di atas ini dianggap background
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        // Jika piksel cukup terang (mendekati putih), jadikan transparan
+        if (r > threshold && g > threshold && b > threshold) {
+            // Hitung seberapa "putih" piksel ini, untuk gradasi alpha
+            const brightness = (r + g + b) / 3;
+            const alpha = Math.max(0, 1 - (brightness - threshold) / (255 - threshold));
+            data[i + 3] = Math.round(alpha * 255);
+        }
+    }
+    ctx.putImageData(imageData, 0, 0);
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
 async function handleTtdFile(file) {
     if(!file)return;
     if(!['image/png','image/jpeg','image/jpg'].includes(file.type)){toast('TTD harus PNG/JPG.','error');return;}
     if(file.size>MAX_TTD){toast('TTD maksimal 2MB.','error');return;}
-    const buf=await file.arrayBuffer(); state.ttdImageBytes=new Uint8Array(buf);
-    if(state.ttdImageUrl)URL.revokeObjectURL(state.ttdImageUrl);
-    state.ttdImageUrl=URL.createObjectURL(file);
-    state.ttdAspect=await imgAspect(state.ttdImageUrl); state.ttdIsJpg=file.type!=='image/png';
+
+    // Load sebagai Image dulu untuk proses remove background
+    const originalUrl = URL.createObjectURL(file);
+    const img = new Image();
+    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = originalUrl; });
+    URL.revokeObjectURL(originalUrl);
+
+    // Auto remove background
+    const processedBlob = await removeWhiteBackground(img);
+    const buf = await processedBlob.arrayBuffer();
+    state.ttdImageBytes = new Uint8Array(buf);
+    if(state.ttdImageUrl) URL.revokeObjectURL(state.ttdImageUrl);
+    state.ttdImageUrl = URL.createObjectURL(processedBlob);
+    state.ttdAspect = img.naturalHeight / img.naturalWidth;
+    state.ttdIsJpg = false; // hasil selalu PNG (ada transparansi)
+
     dom.ttdName.textContent=file.name;dom.ttdSize.textContent=fmt(file.size);
     dom.ttdInfo.style.display='flex';dom.ttdUploadArea.style.display='none';
     state.ttdPositions={};state.ttdPlaced=false;updateTtdOverlay();updateBtn();
-    toast('Tanda tangan siap. Klik halaman untuk menempatkannya.','success');
+    toast('Tanda tangan siap (background dihapus otomatis). Klik halaman untuk menempatkannya.','success');
 }
 function removeTtd() {
     dom.ttdInput.value='';dom.ttdInfo.style.display='none';dom.ttdUploadArea.style.display='';
